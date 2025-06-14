@@ -2,14 +2,16 @@
   <NuxtLayout>
     <Suspense>
       <template #default>
-        <LoadingSpinner size="md" />
         <NuxtPage />
+      </template>
+      <template #fallback>
+        <LoadingSpinner size="lg" />
       </template>
     </Suspense>
   </NuxtLayout>
 </template>
 
 <script setup lang="ts">
-import LoadingSpinner from '~/components/ui/LoadingSpinner.vue'
+import LoadingSpinner from "~/components/ui/LoadingSpinner.vue";
 </script>
 
