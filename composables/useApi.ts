@@ -1,80 +1,90 @@
+import axios from 'axios';
 import {useUserStore} from "~/stores/user";
 
 export const useApi = () => {
     const config = useRuntimeConfig()
-
     const baseUrl = config.public.apiBase || 'http://localhost:3000'
 
-    const fetchApi = async (endpoint: string, options: any = {}) => {
-        // Prepare headers
-        const headers = options.headers || {}
-
-        // Add Content-Type if not provided
-        if (!headers['Content-Type']) {
-            headers['Content-Type'] = 'application/json'
+    // Create axios instance with default config
+    const api = axios.create({
+        baseURL: baseUrl,
+        timeout: 10000,
+        headers: {
+            'Content-Type': 'application/json',
         }
+    });
 
-        // Add Authorization header if token exists
-        const token = useCookie('auth_token')
-        if (token.value) {
-            headers['Authorization'] = `Bearer ${token.value}`
+    // Request interceptor
+    api.interceptors.request.use(config => {
+        // Only access cookies when on client-side
+        if (import.meta.client) {
+            const token = useCookie('auth_token')
+            if (token.value) {
+                config.headers['Authorization'] = `Bearer ${token.value}`
+            }
         }
+        return config
+    });
 
-        // Prepare the request options
-        const requestOptions = {
-            ...options,
-            headers
-        }
-
-        try {
-            const response = await fetch(`${baseUrl}${endpoint}`, requestOptions)
-
-            // Handle unauthorized error
-            if (response.status === 401) {
-                // Get userStore inside the function call to ensure Pinia is initialized
-                const userStore = useUserStore()
-                userStore.logout()
-                throw createError({
-                    statusCode: 401,
-                    statusMessage: 'Unauthorized. Please log in again.'
-                })
+    // Response interceptor
+    api.interceptors.response.use(
+        response => response.data,
+        error => {
+            // Handle 401 unauthorized errors
+            if (error.response?.status === 401 && import.meta.client) {
+                try {
+                    const userStore = useUserStore()
+                    userStore.logout()
+                } catch (e) {
+                    console.error('Failed to logout:', e)
+                }
             }
 
-            // Handle other errors
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}))
-                throw createError({
-                    statusCode: response.status,
-                    statusMessage: errorData.message || response.statusText || 'An error occurred'
-                })
-            }
+            // Format error for Nuxt error handling
+            const statusCode = error.response?.status || 500
+            const statusMessage =
+                error.response?.data?.message ||
+                error.message ||
+                'Network or server error'
 
-            // Parse and return JSON response
-            return await response.json()
-        } catch (error: any) {
-            if (error.statusCode) {
-                throw error
-            }
-            throw createError({
-                statusCode: 500,
-                statusMessage: error.message || 'Network or server error'
-            })
+            return Promise.reject(createError({
+                statusCode,
+                statusMessage
+            }))
         }
-    }
+    );
 
     return {
-        fetchApi,
-        get: (endpoint: string, options = {}) => fetchApi(endpoint, {method: 'GET', ...options}),
-        post: (endpoint: string, data: any, options = {}) => fetchApi(endpoint, {
-            method: 'POST',
-            body: JSON.stringify(data),
-            ...options
-        }),
-        put: (endpoint: string, data: any, options = {}) => fetchApi(endpoint, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-            ...options
-        }),
-        delete: (endpoint: string, options = {}) => fetchApi(endpoint, {method: 'DELETE', ...options})
+        // Basic API methods
+        get: (endpoint: string, params = {}) =>
+            api.get(endpoint, {params}),
+
+        post: (endpoint: string, data: any, options = {}) =>
+            api.post(endpoint, data, options),
+
+        put: (endpoint: string, data: any, options = {}) =>
+            api.put(endpoint, data, options),
+
+        delete: (endpoint: string, options = {}) =>
+            api.delete(endpoint, options),
+
+        // Original fetchApi method renamed to apiRequest for backward compatibility
+        fetchApi: async (endpoint: string, options: any = {}) => {
+            const {method = 'GET', body, headers = {}, ...rest} = options
+
+            try {
+                const response = await api.request({
+                    url: endpoint,
+                    method,
+                    data: body ? JSON.parse(body) : undefined,
+                    headers,
+                    ...rest
+                })
+
+                return response
+            } catch (error: any) {
+                throw error
+            }
+        }
     }
 }

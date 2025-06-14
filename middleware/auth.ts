@@ -1,9 +1,8 @@
 import {useUserStore} from "~/stores/user";
 
 export default defineNuxtRouteMiddleware((to) => {
-    // Use getCurrentInstance to check if we're in component setup context
-    // Only try to use the store if we're in a proper Vue context
-    if (process.client) {
+    // Check if we're on client-side using Nuxt 3's recommended approach
+    if (import.meta.client) {
         try {
             const userStore = useUserStore()
             const token = useCookie('auth_token')
